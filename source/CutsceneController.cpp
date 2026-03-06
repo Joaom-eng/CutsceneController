@@ -71,8 +71,11 @@ void CutsceneController::Update() {
 				ChangeCutscenePause();
 				CCutsceneMgr::SkipCutscene();
 			}
+			else {
+				CTheScripts::Process(); // The game stop script execution when m_UserPause/m_CodePause are enabled
+			}
 
-			CTheScripts::Process(); // The game stop script execution when m_UserPause/m_CodePause are enabled
+			
 		}
 
 		audioMgr->Process();
@@ -254,7 +257,7 @@ typedef bool(__thiscall* FuncFW)();
 FuncFW isForegroundWindow = (FuncFW)0x746070;
 
 bool __cdecl CutsceneController::Hook_IsCutsceneSkipButtonBeingPressed() {
-	// evita que retorne true ao minimizar o jogo
+	// This prevents the value from returning true when the game window is not in focus
 	if (!isForegroundWindow())
 		return false;
 

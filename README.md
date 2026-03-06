@@ -1,5 +1,7 @@
 # CutsceneController
 
+![demonstration](https://imgur.com/a/KpSazWF)
+
 Cutscene Controller is an ASI plugin that adds improvements and fixes to the game's cutscene system:
 - Allows cutscenes to be paused
 - Allows enabling or disabling mouse skip input
