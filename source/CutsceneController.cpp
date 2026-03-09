@@ -4,8 +4,8 @@
 #include <CTheScripts.h>
 
 #include "CutsceneController.h"
+#include "blur.h"
 #include "text.h"
-
 SpriteLoader CutsceneController::sprite_loader;
 bool CutsceneController::bCutscenePaused = false;
 bool CutsceneController::bUseSkipGameKeys;
@@ -38,21 +38,22 @@ bool CutsceneController::LoadAudio() {
 	return true;
 }
 
+
 void CutsceneController::Update() {
 	if (FrontEndMenuManager.m_bStartUpFrontEndRequested) {
 		FrontEndMenuManager.m_bStartUpFrontEndRequested = false; // Prevents the menu from opening after skipping a scene or minimizing and returning to the window
 	}
 	
-	if (IS_CUTSCENE_LOADED) {
+	if (IS_CUTSCENE_RUNNING) {
 		CPad* pad = CPad::GetPad(0);
 		if (IsPauseButtonPressed(pad) && GetTickCount64() > (m_nLastPausedTime + 1000)) {
 			if (bCutscenePaused) {
 				if (bResumeAudioExist)
-					audioMgr->AddSampleToQueue(resumeAudioVol, 44100, resumeAudioId, false, CVector(0.0f, 0.0f, 0.0f));
+					audioMgr->AddSampleToQueue(resumeAudioVol, resumeAudioFreq, resumeAudioId, false, CVector(0.0f, 0.0f, 0.0f), 8, false);
 			}
 			else {
 				if (bPauseAudioExist)
-					audioMgr->AddSampleToQueue(pauseAudioVol, 44100, pauseAudioId, false, CVector(0.0f, 0.0f, 0.0f));
+					audioMgr->AddSampleToQueue(pauseAudioVol, pauseAudioFreq, pauseAudioId, false, CVector(0.0f, 0.0f, 0.0f), 8, false);
 			}
 
 			ChangeCutscenePause();
@@ -67,17 +68,20 @@ void CutsceneController::Update() {
 		}
 
 		if (bCutscenePaused) {
-			if (Hook_IsCutsceneSkipButtonBeingPressed()) {
-				ChangeCutscenePause();
-				CCutsceneMgr::SkipCutscene();
+			
+			if (bSkipInPause) { // ta causando bug aqui
+				if (Hook_IsCutsceneSkipButtonBeingPressed()) {
+					ChangeCutscenePause();
+					CCutsceneMgr::SkipCutscene();
+				}
+				else {
+					CTheScripts::Process(); // The game stop script execution when m_UserPause/m_CodePause are enabled
+				}
 			}
 			else {
-				CTheScripts::Process(); // The game stop script execution when m_UserPause/m_CodePause are enabled
+				CTheScripts::Process();
 			}
-
-			
 		}
-
 		audioMgr->Process();
 	}
 }
@@ -115,7 +119,7 @@ void CutsceneController::CodePauseMethod() {
 }
 
 void CutsceneController::DrawDebugInterface() {
-	if (IS_CUTSCENE_LOADED && bShowDebugInterface) {
+	if (IS_CUTSCENE_RUNNING && bShowDebugInterface) {
 		static char msg[255];
 		sprintf_s(msg, "CutsceneName: %s", CCutsceneMgr::ms_cutsceneName);
 		Draw_String(msg, 40.0, 15.0, 0.3, 0.5, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_LEFT);
@@ -144,8 +148,8 @@ void CutsceneController::DrawDebugInterface() {
 }
 
 void CutsceneController::DrawInterface() {
-	if (IS_CUTSCENE_LOADED && bShowInterface) {
-		Draw_String(pauseText.c_str(), pauseTextVec.x, pauseTextVec.y, pauseTextSizeX, pauseTextSizeY, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_CENTER);
+	if (IS_CUTSCENE_RUNNING && bShowInterface) {
+		Draw_String(pauseText.c_str(), pauseTextVec.x, pauseTextVec.y, pauseTextSizeX, pauseTextSizeY, true, pauseTextFont, eFontAlignment::ALIGN_CENTER);
 		if (bVignette) {
 			vig = sprite_loader.GetSprite("cuts_vignette");
 			if(vig.m_pTexture != nullptr)
@@ -157,41 +161,84 @@ void CutsceneController::DrawInterface() {
 void CutsceneController::ReadIniOptions() {
 	CIniReader ini("CutsceneController.ini");
 	if (ini.data.size() <= 0) {
-		// erro
+		// error
 		return;
 	}
 
 	// interface config
-	string s = ini.ReadString("Config", "PauseText", "paused");
+	string s = ini.ReadString("Interface", "PauseText", "paused");
 	if (!s.empty()) {
 		pauseText = s;
 	}
 
 	float f = 0.0f;
-	f = ini.ReadFloat("Config", "PauseTextX", 570.0);
+	f = ini.ReadFloat("Interface", "PauseTextX", 570.0f);
 	if (f > 0.0) {
 		pauseTextVec.x = f;
 	}
 
-	f = ini.ReadFloat("Config", "PauseTextY", 400.0);
+	f = ini.ReadFloat("Interface", "PauseTextY", 400.0f);
 	if (f > 0.0) {
 		pauseTextVec.y = f;
 	}
 
-	f = ini.ReadFloat("Config", "PauseTextSizeX", 1.0);
+	f = ini.ReadFloat("Interface", "PauseTextSizeX", 1.0f);
 	if (f > 0.0) {
 		pauseTextSizeX = f;
 	}
 
-	f = ini.ReadFloat("Config", "PauseTextSizeY", 1.0);
+	f = ini.ReadFloat("Interface", "PauseTextSizeY", 1.0f);
 	if (f > 0.0) {
 		pauseTextSizeY = f;
 	}
 
-	int i2; bool b;
-	bVignette = ini.ReadBoolean("Config", "ActiveVignette", true);
-	bUseSkipGameKeys = ini.ReadBoolean("Config", "UseSkipGameKeys", true);
-	bUseMouseToSkip = ini.ReadBoolean("Config", "UseMouseLeftButtonToSkip", true);
+	pauseTextBorder = ini.ReadInteger("Interface", "PauseTextBorder", 1);
+
+	f = ini.ReadFloat("Interface", "BlurIntensity", 6.0f);
+	fBlurIntensity = f;
+
+	int i2;
+	bVignette = ini.ReadBoolean("Interface", "ActiveVignette", true);
+	i2 = ini.ReadInteger("Interface", "VignetteAlpha", 255);
+	if (i2 > -1 && i2 < 256) {
+		vignetteAlpha = (unsigned char)i2;
+	}
+	bBlur = ini.ReadBoolean("Interface", "ActiveBlur", true);
+	bSetShadow = ini.ReadBoolean("Interface", "PauseTextShadow", false);
+	bSetBackground = ini.ReadBoolean("Interface", "PauseTextBackground", false);
+
+	// font 
+	i2 = ini.ReadInteger("Interface", "PauseTextFont", eFontStyle::FONT_SUBTITLES);
+	if (i2 >= 0 && i2 <= 3) pauseTextFont = (eFontStyle)i2;
+	else pauseTextFont = eFontStyle::FONT_SUBTITLES;
+
+	// colors
+	unsigned char r, g, b, a;
+	r = ini.ReadInteger("Interface", "PauseTextRed", 255);
+	g = ini.ReadInteger("Interface", "PauseTextGreen", 255);
+	b = ini.ReadInteger("Interface", "PauseTextBlue", 255);
+	a = ini.ReadInteger("Interface", "PauseTextAlpha", 255);
+	pauseTextColor = { r, g, b, a };
+
+	r = ini.ReadInteger("Interface", "PauseTextDropRed", 255);
+	g = ini.ReadInteger("Interface", "PauseTextDropGreen", 255);
+	b = ini.ReadInteger("Interface", "PauseTextDropBlue", 255);
+	a = ini.ReadInteger("Interface", "PauseTextDropAlpha", 255);
+	pauseTextDropColor = { r, g, b, a };
+	pauseTextDropPos = ini.ReadInteger("Interface", "PauseTextDropPos", 0);
+
+	r = ini.ReadInteger("Interface", "PauseTextBackRed", 255);
+	g = ini.ReadInteger("Interface", "PauseTextBackGreen", 255);
+	b = ini.ReadInteger("Interface", "PauseTextBackBlue", 255);
+	a = ini.ReadInteger("Interface", "PauseTextBackAlpha", 255);
+	pauseTextBackColor = { r, g, b, a };
+
+	a = ini.ReadInteger("Interface", "BlurAlpha", 60);
+	blurAlpha = a;
+
+	bUseSkipGameKeys = ini.ReadBoolean("Input", "UseSkipGameKeys", true);
+	bUseMouseToSkip = ini.ReadBoolean("Input", "UseMouseLeftButtonToSkip", true);
+	bSkipInPause = ini.ReadBoolean("Input", "SkipInPause", true);
 
 	// reading custom keys
 	static char str[32];
@@ -199,7 +246,7 @@ void CutsceneController::ReadIniOptions() {
 		int n = NULL;
 		while (true) {
 			sprintf_s(str, "SkipKey%i", n);
-			unsigned int key = ini.ReadInteger("Config", str, -1);
+			unsigned int key = ini.ReadInteger("Input", str, -1);
 			if (key == -1)
 				break;
 			skipKeys.push_back(key);
@@ -209,20 +256,15 @@ void CutsceneController::ReadIniOptions() {
 		n = NULL;
 		while (true) {
 			sprintf_s(str, "SkipButton%i", n);
-			int button = ini.ReadInteger("Config", str, -1);
+			int button = ini.ReadInteger("Input", str, -1);
 			if (button == -1)
 				break;
 			skipButtons.push_back((GamepadButton)button);
 			n++;
 		}
 	}
-	
-	i2 = ini.ReadInteger("Config", "VignetteAlpha", 255);
-	if (i2 > -1 && i2 < 256) {
-		vignetteAlpha = (unsigned char)i2;
-	}
 
-	s = ini.ReadString("Config", "PauseMethod", "CODE_PAUSE");
+	s = ini.ReadString("Others", "PauseMethod", "CODE_PAUSE");
 	if (s == "USER_PAUSE") {
 		pauseMethod = eCutscenePauseMethod::USER_PAUSE;
 	}
@@ -230,27 +272,29 @@ void CutsceneController::ReadIniOptions() {
 		pauseMethod = eCutscenePauseMethod::CODE_PAUSE;
 	}
 
-	s = ini.ReadString("Config", "GamepadButtonPause", "None");
+	s = ini.ReadString("Input", "GamepadButtonPause", "None");
 	buttonPause = GetButtonFromString(s);
 
-	s = ini.ReadString("Config", "GamepadButtonDebug", "None");
+	s = ini.ReadString("Input", "GamepadButtonDebug", "None");
 	buttonDebug = GetButtonFromString(s);
 
 	// virtual keys
 	int i;
-	i = ini.ReadInteger("Config", "PauseKey", VK_F9);
+	i = ini.ReadInteger("Input", "PauseKey", VK_F9);
 	if (i > -1) {
 		pauseKey = i;
 	}
 
-	i = ini.ReadInteger("Config", "DebugKey", VK_F9);
+	i = ini.ReadInteger("Input", "DebugKey", VK_F9);
 	if (i > -1) {
 		debugKey = i;
 	}
 
 	// audio
-	pauseAudioVol = ini.ReadInteger("Config", "PauseAudioVolume", 127);
-	resumeAudioVol = ini.ReadInteger("Config", "ResumeAudioVolume", 127);
+	pauseAudioVol = ini.ReadInteger("Audio", "PauseAudioVolume", 127);
+	resumeAudioVol = ini.ReadInteger("Audio", "ResumeAudioVolume", 127);
+	pauseAudioFreq = ini.ReadInteger("Audio", "PauseFreq", 44100);
+	resumeAudioFreq = ini.ReadInteger("Audio", "ResumeFreq", 44100);
 }
 
 typedef bool(__thiscall* FuncFW)();

@@ -6,11 +6,12 @@
 #include <CCutsceneMgr.h>
 #include <CSprite2d.h>
 #include <Audio.h>
+#include <CFont.h>
 
 #include "IniReader/IniReader.h"
 #include "InputHelper.h"
 
-#define IS_CUTSCENE_LOADED CCutsceneMgr::ms_cutsceneLoadStatus == eCutsceneLoadStatus::STATUS_LOADED
+#define IS_CUTSCENE_RUNNING CCutsceneMgr::ms_running
 
 using namespace plugin;
 using namespace std;
@@ -30,8 +31,6 @@ public:
 	// interface 
 	bool bShowInterface;
 	bool bShowDebugInterface;
-	bool bVignette;
-	unsigned char vignetteAlpha;
 	CSprite2d vig;
 
 	BassSampleManager* audioMgr;
@@ -40,25 +39,46 @@ public:
 	ULONGLONG m_nLastPausedTime = NULL;
 	ULONGLONG m_nLastDebugTime = NULL;
 	
-	// ini props 
+	// ini props //
 	unsigned int pauseKey;
 	unsigned int debugKey;
 	GamepadButton buttonPause;
 	GamepadButton buttonDebug;
 	bool bUseMouseToSkip;
+	bool bSkipInPause;
 
+	// effects
+	bool bVignette;
+	bool bBlur;
+	unsigned char vignetteAlpha;
+	unsigned char blurAlpha;
+	float fBlurIntensity;
+	
+	// text //
 	string pauseText;
+	eFontStyle pauseTextFont;
+
 	CVector2D pauseTextVec;
 	float pauseTextSizeX;
 	float pauseTextSizeY;
-
+	CRGBA pauseTextColor;
+	CRGBA pauseTextDropColor;
+	CRGBA pauseTextBackColor;
+	short pauseTextBorder;
+	short pauseTextDropPos;
+	bool bSetBackground;
+	bool bSetShadow;
+	
+	// audio
 	uint32_t pauseAudioId;
 	bool bPauseAudioExist;
 	uint8_t pauseAudioVol;
+	uint32_t pauseAudioFreq;
 
 	uint32_t resumeAudioId;
 	bool bResumeAudioExist;
 	uint8_t resumeAudioVol;
+	uint32_t resumeAudioFreq;
 
 	CutsceneController();
 

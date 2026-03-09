@@ -16,7 +16,7 @@ static void FixAspectRatio(float* x, float* y)
 
 static void Draw_String(const char* m_text, float m_fX, float m_fY, float m_fWidth, float m_fHeight, bool m_nFixAR, eFontStyle m_nStyle, eFontAlignment m_nAlign) {
 	char finalString[400];
-	CRGBA m_Color = CRGBA(255, 255, 255 , 230);
+	//CRGBA m_Color = CRGBA(255, 255, 255 , 230);
 	float sizX = m_fWidth;
 	float sizY = m_fHeight;
 
@@ -32,8 +32,20 @@ static void Draw_String(const char* m_text, float m_fX, float m_fY, float m_fWid
 	CFont::SetProportional(true);
 	CFont::SetJustify(false);
 	CFont::SetOrientation(m_nAlign);
-	CFont::SetEdge(1);
-	CFont::SetDropColor(CRGBA(0, 0, 0, 255));
+	CFont::SetEdge(inst.pauseTextBorder);
+
+	if (inst.bSetShadow) {
+		CFont::SetDropColor(inst.pauseTextDropColor);
+		CFont::SetDropShadowPosition(inst.pauseTextDropPos);
+	}
+	if (inst.bSetBackground) {
+		CFont::SetBackground(inst.bSetBackground, false);
+		CFont::SetBackgroundColor(inst.pauseTextBackColor);
+	}
+	else {
+		CFont::SetBackground(false, false);
+	}
+
 	/*
 	if (m_nOutline || m_nShadow)
 	{
@@ -55,14 +67,14 @@ static void Draw_String(const char* m_text, float m_fX, float m_fY, float m_fWid
 	}
 	*/
 
-	CFont::SetBackground(false, false);
-	CFont::SetColor(m_Color);
+	
+	CFont::SetColor(inst.pauseTextColor);
 	switch (m_nAlign)
 	{
 	case ALIGN_LEFT:
 		CFont::SetWrapx(640.0f * magicResolutionWidth); break;
 	case ALIGN_CENTER:
-		CFont::SetCentreSize(640.0f * magicResolutionWidth);
+		CFont::SetCentreSize(640.0f * magicResolutionWidth); break;
 	case ALIGN_RIGHT:
 		CFont::SetRightJustifyWrap(640.0f * magicResolutionWidth); break;
 	}
