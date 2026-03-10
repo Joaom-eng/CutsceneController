@@ -68,18 +68,12 @@ void CutsceneController::Update() {
 		}
 
 		if (bCutscenePaused) {
-			
-			if (bSkipInPause) { // ta causando bug aqui
-				if (Hook_IsCutsceneSkipButtonBeingPressed()) {
-					ChangeCutscenePause();
-					CCutsceneMgr::SkipCutscene();
-				}
-				else {
-					CTheScripts::Process(); // The game stop script execution when m_UserPause/m_CodePause are enabled
-				}
+			if (Hook_IsCutsceneSkipButtonBeingPressed()) {
+				ChangeCutscenePause();
+				CCutsceneMgr::SkipCutscene();
 			}
 			else {
-				CTheScripts::Process();
+				CTheScripts::Process(); // The game stop script execution when m_UserPause/m_CodePause are enabled
 			}
 		}
 		audioMgr->Process();
@@ -303,6 +297,9 @@ FuncFW isForegroundWindow = (FuncFW)0x746070;
 bool __cdecl CutsceneController::Hook_IsCutsceneSkipButtonBeingPressed() {
 	// This prevents the value from returning true when the game window is not in focus
 	if (!isForegroundWindow())
+		return false;
+
+	if (bCutscenePaused && !inst.bSkipInPause)
 		return false;
 
 	CPad* Pad = CPad::GetPad(0);
