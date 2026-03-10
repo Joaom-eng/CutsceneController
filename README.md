@@ -1,6 +1,6 @@
 # CutsceneController
 
-![alt text](image.png)
+<img width="1918" height="1079" alt="image" src="https://github.com/user-attachments/assets/be40c3ba-3553-47fa-ab45-05e987e11a2e" />
 
 Cutscene Controller is an ASI plugin that adds improvements and fixes to the game's cutscene system:
 - Allows cutscenes to be paused
