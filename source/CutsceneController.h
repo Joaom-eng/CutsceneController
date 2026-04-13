@@ -4,14 +4,20 @@
 #include <CMenuManager.h>
 #include <SpriteLoader.h>
 #include <CCutsceneMgr.h>
+
 #include <CSprite2d.h>
+#include <CCamera.h>
 #include <Audio.h>
 #include <CFont.h>
+#include <CWorld.h>
 
 #include "IniReader/IniReader.h"
 #include "InputHelper.h"
+#include "blur.h"
 
 #define IS_CUTSCENE_RUNNING CCutsceneMgr::ms_running
+#define IS_ON_SCRIPTED_CUTSCENE !IS_CUTSCENE_RUNNING && TheCamera.m_bWideScreenOn
+#define IS_ON_ANY_CUTSCENE CCutsceneMgr::ms_running || TheCamera.m_bWideScreenOn
 
 using namespace plugin;
 using namespace std;
@@ -31,25 +37,41 @@ public:
 	// interface 
 	bool bShowInterface;
 	bool bShowDebugInterface;
+	bool bShowCamSpeedText;
 	CSprite2d vig;
 
 	BassSampleManager* audioMgr;
+
+	// cam settings
+	unsigned int toggleCamKey;
+	unsigned int frontKey;
+	unsigned int backKey;
+	float camSensi;
+	float camSpeed;
+	bool bFixedCam = false;
+	CVector camPos;
+	CVector lastFixedCamPos;
+	CVector lastFixedCamAngle;
 
 	eCutscenePauseMethod pauseMethod;
 	ULONGLONG m_nLastPausedTime = NULL;
 	ULONGLONG m_nLastDebugTime = NULL;
 	
-	// ini props //
+	// ini props 
 	unsigned int pauseKey;
 	unsigned int debugKey;
+	unsigned int disableBlurInGameKey;
+
 	GamepadButton buttonPause;
 	GamepadButton buttonDebug;
 	bool bUseMouseToSkip;
 	bool bSkipInPause;
 
 	// effects
+	GaussianBlur* gsBlur;
 	bool bVignette;
 	bool bBlur;
+	bool bUsePixelShader;
 	unsigned char vignetteAlpha;
 	unsigned char blurAlpha;
 	float fBlurIntensity;
@@ -63,10 +85,8 @@ public:
 	float pauseTextSizeY;
 	CRGBA pauseTextColor;
 	CRGBA pauseTextDropColor;
-	CRGBA pauseTextBackColor;
 	short pauseTextBorder;
 	short pauseTextDropPos;
-	bool bSetBackground;
 	bool bSetShadow;
 	
 	// audio
@@ -81,6 +101,11 @@ public:
 	uint32_t resumeAudioFreq;
 
 	CutsceneController();
+
+	inline void PointCameraAtPoint(CVector* pos, eSwitchType switchType) {
+		if (pos->z <= -100.0f) pos->z = CWorld::FindGroundZForCoord(pos->x, pos->y);
+		TheCamera.TakeControlNoEntity(pos, switchType, eSwitchType::SWITCHTYPE_INTERPOLATION);
+	}
 
 	inline void ChangeCutscenePause() {
 		if (pauseMethod == eCutscenePauseMethod::CODE_PAUSE) CodePauseMethod();
@@ -133,6 +158,9 @@ public:
 	void DrawInterface();
 	void DrawDebugInterface();
 
+	void ProcessFreeCamera();
+	void UpdateFreeCamera(float& posX, float& posY, float& posZ, float& angX, float& angY);
+
 	void ReadIniOptions();
 
 	static bool bUseSkipGameKeys;
@@ -141,7 +169,9 @@ public:
 
 	static bool bCutscenePaused;
 	static SpriteLoader sprite_loader;
+
 	static bool __cdecl Hook_IsCutsceneSkipButtonBeingPressed();
+
 };
 
 extern CutsceneController inst;

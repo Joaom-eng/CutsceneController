@@ -1,6 +1,6 @@
 #include <plugin.h> 
 #include <string>
-#include <CPostEffects.h>
+
 #include "CutsceneController.h"
 #include "blur.h"
 
@@ -12,15 +12,16 @@ struct Main
     {   
         if (GetGameVersion() != GAME_10US_HOODLUM) return;
         
-        // Calls hook 
-        injector::MakeCALL(0x5B1947, CutsceneController::Hook_IsCutsceneSkipButtonBeingPressed);
-        
+        injector::MakeJMP(0x4D5D10, CutsceneController::Hook_IsCutsceneSkipButtonBeingPressed, true);
+
         // It's possible to get the subtitles rendered in the cutscene in real time, but the game already shows this in the menu
         //injector::MakeCALL(0x5B187E, AddMessageHookCall, true); 
         
         Events::initRwEvent += []() {
             if (FileExists(PLUGIN_PATH("cuts_vignette.png")))
                 CutsceneController::sprite_loader.LoadSpriteFromFolder(PLUGIN_PATH("cuts_vignette.png"));
+            inst.gsBlur = new GaussianBlur(); // init rasters
+            RwD3D9CreatePixelShader((RwUInt32*)&blur_cso, (void**)&inst.gsBlur->blurShader);
         };
         
         Events::shutdownRwEvent += [] {
@@ -28,33 +29,36 @@ struct Main
         };
         
         // Register event callbacks
-        Events::initScriptsEvent += [] {inst.LoadAudio(); };
+        Events::initScriptsEvent += [] { inst.LoadAudio();  };
+
         Events::gameProcessEvent += [] { inst.Update();};
-		Events::drawAfterFadeEvent += [] { inst.DrawInterface(); inst.DrawDebugInterface(); };
+        
+		Events::drawAfterFadeEvent += [] { 
+            if (!FrontEndMenuManager.m_bMenuActive) {
+                inst.DrawInterface(); 
+                inst.DrawDebugInterface();
+            }
+        };
 
-        Events::drawingEvent.before += [] {
-            if (inst.bCutscenePaused && inst.bBlur) {
-                RwRaster* raster = CPostEffects::pRasterFrontBuffer;
-                if (!raster) return;
-
-                float blurIntensity = inst.fBlurIntensity;
-                unsigned char alpha = inst.blurAlpha; 
-
-                // 4 diagonal passes(simulates Gaussian shader)
-                DrawBlurStep(raster, -blurIntensity, -blurIntensity, alpha);
-                DrawBlurStep(raster, blurIntensity, -blurIntensity, alpha);
-                DrawBlurStep(raster, -blurIntensity, blurIntensity, alpha);
-                DrawBlurStep(raster, blurIntensity, blurIntensity, alpha);
-
-                // More cardinal steps to increase intensity
-                DrawBlurStep(raster, 0, blurIntensity * 1.5f, alpha);
-                DrawBlurStep(raster, 0, -blurIntensity * 1.5f, alpha);
+        Events::drawingEvent.before += [=] {
+            if (inst.bCutscenePaused && !inst.bFixedCam) {
+                if (inst.bBlur) {
+                    inst.gsBlur->DrawBlur();
+                }
+                else {
+                    // Renders the "copy" of the raster front made before pausing the cutscene
+                    RwRenderStateSet(rwRENDERSTATETEXTURERASTER, (void*)inst.gsBlur->blurRaster);
+                    for (int i = 0; i < 4; i++) {
+                        colorfilterVerts[i].emissiveColor = 0xFFFFFFFF;
+                    }
+                    RwIm2DRenderIndexedPrimitive(rwPRIMTYPETRILIST, colorfilterVerts, 4, colorfilterIndices, 6);
+                }
             }
         };
         
         // I believe this is the best method, if something causes the cutscene audio to stop, it will be paused
         Events::onPauseAllSounds += [] {
-            if (IS_CUTSCENE_RUNNING && !CutsceneController::bCutscenePaused) {
+            if ((IS_ON_ANY_CUTSCENE) && !CutsceneController::bCutscenePaused) {
                 inst.ChangeCutscenePause();
             }
         };

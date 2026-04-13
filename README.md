@@ -12,6 +12,8 @@ Cutscene Controller is an ASI plugin that adds improvements and fixes to the gam
 - Ensures CLEO scripts continue executing while cutscenes are paused, preventing interruptions caused by the game's `CTimer::m_UserPause` or `CTimer::m_CodePause` states
 - Provides an exported function `IsCutscenePaused` that allows external plugins or CLEO scripts to detect whether a cutscene is currently paused
 - Option to simulate Gaussian blur shader during cutscene pause, being compatible with any graphics card
+- There is also a real Gaussian shader option
 - Adds a simple pause interface
+- It allows you to move the camera freely during the scene, something like [this](https://www.mixmods.com.br/2018/11/assistir-cutscenes-em-outros-angulos-mod/) but without bugs
 
 This mod uses the [plugin SDK](https://github.com/DK22Pac/plugin-sdk), thanks to all the contributors

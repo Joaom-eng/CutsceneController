@@ -1,11 +1,14 @@
-#include <plugin.h>
-#include <CTimer.h>
-#include <Audio.h>
+﻿#include <plugin.h> // Plugin-SDK version 1002 from 2025-12-09 23:18:09
 #include <CTheScripts.h>
+#include <CTimer.h>
+#include <CPostEffects.h>
+#include <CUserDisplay.h>
 
 #include "CutsceneController.h"
-#include "blur.h"
 #include "text.h"
+
+#define ACTIVE_CAMERA TheCamera.m_aCams[TheCamera.m_nActiveCam]
+
 SpriteLoader CutsceneController::sprite_loader;
 bool CutsceneController::bCutscenePaused = false;
 bool CutsceneController::bUseSkipGameKeys;
@@ -38,14 +41,125 @@ bool CutsceneController::LoadAudio() {
 	return true;
 }
 
+void CutsceneController::UpdateFreeCamera(float& posX, float& posY, float& posZ, float& angX, float& angY) {
+	if (bCutscenePaused) TheCamera.Process(); // Having the m_UserPause and m_CodePause flags active prevents TheCamera.Process() from being called
+	
+	CPad* pad = CPad::GetPad(0);
+
+	if (pad->NewMouseControllerState.wheelUp) {
+		camSpeed += 0.1f;
+	}
+	if (pad->NewMouseControllerState.wheelDown) {
+		camSpeed -= 0.1f;
+		if (camSpeed < 0.0f) camSpeed = 0.1f;
+	}
+
+	auto mouse = pad->NewMouseControllerState; // Mouse movement
+	if (injector::ReadMemory<bool>(0xBA6745)) {
+		mouse.y *= -1.0f;
+	}
+
+	float accel;
+	if (camSensi == 0.0f) accel = TheCamera.m_fMouseAccelHorzntal;
+	else accel = camSensi;
+
+	angX += mouse.x * accel; // Sensitivity
+	angY -= mouse.y * accel;
+
+	if (angY > 1.5f) angY = 1.5f;
+	if (angY < -1.5f) angY = -1.5f;
+
+	float dirX = cos(angY) * sin(angX);
+	float dirY = cos(angY) * cos(angX);
+	float dirZ = sin(angY);
+
+	if (KeyPressed(frontKey)) {
+		posX += dirX * camSpeed;
+		posY += dirY * camSpeed;
+		posZ += dirZ * camSpeed;
+	}
+
+	if (KeyPressed(backKey)) {
+		posX -= dirX * camSpeed;
+		posY -= dirY * camSpeed;
+		posZ -= dirZ * camSpeed;
+	}
+
+	CVector camPos = { posX, posY, posZ };
+	CVector lookAt = { posX + dirX, posY + dirY, posZ + dirZ };
+	CVector angle = {0.0f, 0.0f, 0.0f};
+
+	TheCamera.SetCamPositionForFixedMode(&camPos, &angle);
+	PointCameraAtPoint(&lookAt, eSwitchType::SWITCHTYPE_JUMPCUT);
+}
+
+void CutsceneController::ProcessFreeCamera() {
+	static float angY, angX;
+	static float posX, posY, posZ;
+
+	CVector camPos;
+
+	static CVector vecPoint;
+	unsigned int ms = static_cast<unsigned int>(CCutsceneMgr::ms_cutsceneTimer * 1000.0f);
+
+	eCamMode mode = ACTIVE_CAMERA.m_nMode;
+	
+	ACTIVE_CAMERA.m_nMode = eCamMode::MODE_FLYBY; // Necessary to call GetCutSceneFinishTime
+	if (ms >= TheCamera.GetCutSceneFinishTime() && bFixedCam && !IS_ON_SCRIPTED_CUTSCENE) {
+		mode = MODE_FLYBY;
+		CCutsceneMgr::SkipCutscene(); // Fixes the scene not finishing with bFixedCam active
+		bFixedCam = false;
+	}
+	ACTIVE_CAMERA.m_nMode = mode;
+
+	if (bFixedCam) {
+		UpdateFreeCamera(posX, posY, posZ, angX, angY);
+	}
+
+	static ULONGLONG lastKeyTime;
+
+	if (KeyPressed(toggleCamKey) && GetTickCount64() > (lastKeyTime + 1000)) {
+		if (bFixedCam) {
+			if (IS_ON_SCRIPTED_CUTSCENE) {
+				ACTIVE_CAMERA.m_nMode = eCamMode::MODE_FIXED;
+				TheCamera.SetCamPositionForFixedMode(&lastFixedCamPos, &lastFixedCamAngle);
+				TheCamera.m_vecFixedModeVector = vecPoint; // This vector is modified by the opcode POINT_CAMERA_AT_POINT
+			}
+			else {
+				// Resynchronizes the timer used in the CCam::Process_FlyBy function
+				ACTIVE_CAMERA.m_fTimeElapsedFloat = CCutsceneMgr::ms_cutsceneTimer * 1000.0f;
+
+				ACTIVE_CAMERA.m_nMode = eCamMode::MODE_FLYBY;
+				TheCamera.TakeControlWithSpline(eSwitchType::SWITCHTYPE_JUMPCUT);
+			}
+			bFixedCam = false;
+		}
+		else {
+			camPos = ACTIVE_CAMERA.m_vecSource;
+
+			posX = camPos.x;
+			posY = camPos.y;
+			posZ = camPos.z;
+
+			lastFixedCamPos = TheCamera.m_vecFixedModeSource;
+			lastFixedCamAngle = TheCamera.m_vecFixedModeUpOffSet;
+			vecPoint = TheCamera.m_vecFixedModeVector;
+			bFixedCam = true;
+		}
+		lastKeyTime = GetTickCount64();
+	}
+}
 
 void CutsceneController::Update() {
 	if (FrontEndMenuManager.m_bStartUpFrontEndRequested) {
 		FrontEndMenuManager.m_bStartUpFrontEndRequested = false; // Prevents the menu from opening after skipping a scene or minimizing and returning to the window
 	}
-	
-	if (IS_CUTSCENE_RUNNING) {
+
+	if (IS_ON_ANY_CUTSCENE) {
 		CPad* pad = CPad::GetPad(0);
+		
+		inst.ProcessFreeCamera();
+
 		if (IsPauseButtonPressed(pad) && GetTickCount64() > (m_nLastPausedTime + 1000)) {
 			if (bCutscenePaused) {
 				if (bResumeAudioExist)
@@ -55,19 +169,34 @@ void CutsceneController::Update() {
 				if (bPauseAudioExist)
 					audioMgr->AddSampleToQueue(pauseAudioVol, pauseAudioFreq, pauseAudioId, false, CVector(0.0f, 0.0f, 0.0f), 8, false);
 			}
+			
+			RwRasterPushContext(gsBlur->blurRaster);
+			RwRasterRenderFast(CPostEffects::pRasterFrontBuffer, 0, 0);
+			RwRasterPopContext();
+
+			// Pausing the mission timers, as they are updated even when paused
+			if (IS_ON_SCRIPTED_CUTSCENE) {
+				if (bCutscenePaused) {
+					CUserDisplay::OnscnTimer.m_bPaused = false; // same as FREEZE_ONSCREEN_TIMER opcode
+					injector::WriteMemory<char>(0x58B325, 1, true);
+				}
+				else {
+					CUserDisplay::OnscnTimer.m_bPaused = true;
+					injector::WriteMemory<char>(0x58B325, 0, true);
+				}
+			}
 
 			ChangeCutscenePause();
 			m_nLastPausedTime = GetTickCount64();
 		}
 
 		if (IsDebugButtonPressed(pad) && GetTickCount64() > (m_nLastDebugTime + 1000)) {
-
 			if (bShowDebugInterface) bShowDebugInterface = false;
 			else bShowDebugInterface = true;
 			m_nLastDebugTime = GetTickCount64();
 		}
 
-		if (bCutscenePaused) {
+		if (bCutscenePaused && !bFixedCam) {
 			if (Hook_IsCutsceneSkipButtonBeingPressed()) {
 				ChangeCutscenePause();
 				CCutsceneMgr::SkipCutscene();
@@ -135,20 +264,25 @@ void CutsceneController::DrawDebugInterface() {
 
 		sprintf_s(msg, "NumParticleEffects: %i", CCutsceneMgr::ms_iNumParticleEffects);
 		Draw_String(msg, 40.0, 75.0, 0.3, 0.5, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_LEFT);
-
+		
 		sprintf_s(msg, "NumCutsceneObjs: %i", CCutsceneMgr::ms_numCutsceneObjs);
 		Draw_String(msg, 40.0, 85.0, 0.3, 0.5, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_LEFT);
 	}
 }
 
 void CutsceneController::DrawInterface() {
-	if (IS_CUTSCENE_RUNNING && bShowInterface) {
+	if ((IS_ON_ANY_CUTSCENE) && bShowInterface) { // pause interface
 		Draw_String(pauseText.c_str(), pauseTextVec.x, pauseTextVec.y, pauseTextSizeX, pauseTextSizeY, true, pauseTextFont, eFontAlignment::ALIGN_CENTER);
 		if (bVignette) {
 			vig = sprite_loader.GetSprite("cuts_vignette");
 			if(vig.m_pTexture != nullptr)
 				vig.Draw(CRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT), CRGBA(0, 0, 0, vignetteAlpha));
 		}
+	}
+	if ((IS_ON_ANY_CUTSCENE) && bFixedCam && bShowCamSpeedText) {
+		char msg[64];
+		sprintf_s(msg, "Camera speed: %.1f", camSpeed);
+		Draw_String(msg, 580.0f, 15.0f, 0.3, 0.5, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_CENTER); // 640 480
 	}
 }
 
@@ -188,7 +322,7 @@ void CutsceneController::ReadIniOptions() {
 
 	pauseTextBorder = ini.ReadInteger("Interface", "PauseTextBorder", 1);
 
-	f = ini.ReadFloat("Interface", "BlurIntensity", 6.0f);
+	f = ini.ReadFloat("Interface", "BlurIntensity", 2.0f);
 	fBlurIntensity = f;
 
 	int i2;
@@ -197,9 +331,11 @@ void CutsceneController::ReadIniOptions() {
 	if (i2 > -1 && i2 < 256) {
 		vignetteAlpha = (unsigned char)i2;
 	}
+
 	bBlur = ini.ReadBoolean("Interface", "ActiveBlur", true);
+	bUsePixelShader = ini.ReadBoolean("Interface", "UseGaussianShader", false);
+
 	bSetShadow = ini.ReadBoolean("Interface", "PauseTextShadow", false);
-	bSetBackground = ini.ReadBoolean("Interface", "PauseTextBackground", false);
 
 	// font 
 	i2 = ini.ReadInteger("Interface", "PauseTextFont", eFontStyle::FONT_SUBTITLES);
@@ -220,12 +356,6 @@ void CutsceneController::ReadIniOptions() {
 	a = ini.ReadInteger("Interface", "PauseTextDropAlpha", 255);
 	pauseTextDropColor = { r, g, b, a };
 	pauseTextDropPos = ini.ReadInteger("Interface", "PauseTextDropPos", 0);
-
-	r = ini.ReadInteger("Interface", "PauseTextBackRed", 255);
-	g = ini.ReadInteger("Interface", "PauseTextBackGreen", 255);
-	b = ini.ReadInteger("Interface", "PauseTextBackBlue", 255);
-	a = ini.ReadInteger("Interface", "PauseTextBackAlpha", 255);
-	pauseTextBackColor = { r, g, b, a };
 
 	a = ini.ReadInteger("Interface", "BlurAlpha", 60);
 	blurAlpha = a;
@@ -272,23 +402,26 @@ void CutsceneController::ReadIniOptions() {
 	s = ini.ReadString("Input", "GamepadButtonDebug", "None");
 	buttonDebug = GetButtonFromString(s);
 
-	// virtual keys
-	int i;
-	i = ini.ReadInteger("Input", "PauseKey", VK_F9);
-	if (i > -1) {
-		pauseKey = i;
-	}
-
-	i = ini.ReadInteger("Input", "DebugKey", VK_F9);
-	if (i > -1) {
-		debugKey = i;
-	}
+	// main keys
+	pauseKey = ini.ReadInteger("Input", "PauseKey", VK_F9);
+	debugKey = ini.ReadInteger("Input", "DebugKey", VK_TAB);
+	disableBlurInGameKey = ini.ReadInteger("Input", "DisableBlurInGameKey", 0);
 
 	// audio
 	pauseAudioVol = ini.ReadInteger("Audio", "PauseAudioVolume", 127);
 	resumeAudioVol = ini.ReadInteger("Audio", "ResumeAudioVolume", 127);
+
 	pauseAudioFreq = ini.ReadInteger("Audio", "PauseFreq", 44100);
 	resumeAudioFreq = ini.ReadInteger("Audio", "ResumeFreq", 44100);
+
+	// camera
+	toggleCamKey = ini.ReadInteger("Camera", "ToggleKey", 0);
+	camSensi = ini.ReadFloat("Camera", "Sensitivity", 0.0f);
+	camSpeed = ini.ReadFloat("Camera", "InitialSpeed", 0.3f);
+	bShowCamSpeedText = ini.ReadBoolean("Camera", "ShowSpeedNumber", true);
+	frontKey = ini.ReadInteger("Camera", "FrontKey", 87); 
+	backKey = ini.ReadInteger("Camera", "BackKey", 83);
+
 }
 
 typedef bool(__thiscall* FuncFW)();
@@ -302,10 +435,10 @@ bool __cdecl CutsceneController::Hook_IsCutsceneSkipButtonBeingPressed() {
 	if (bCutscenePaused && !inst.bSkipInPause)
 		return false;
 
-	CPad* Pad = CPad::GetPad(0);
+	CPad* pad = CPad::GetPad(0);
 
 	if (bUseSkipGameKeys) {
-		if (!Pad->NewState.ButtonCross || Pad->OldState.ButtonCross)
+		if (!pad->NewState.ButtonCross || pad->OldState.ButtonCross)
 		{
 			if (!inst.IsMouseLeftButtonPressed())
 			{
@@ -325,7 +458,7 @@ bool __cdecl CutsceneController::Hook_IsCutsceneSkipButtonBeingPressed() {
 		}
 		
 		for (auto& i : skipButtons) {
-			if (IsButtonPressed(i, Pad->NewState) && !IsButtonPressed(i, Pad->OldState))
+			if (IsButtonPressed(i, pad->NewState) && !IsButtonPressed(i, pad->OldState))
 				return true;
 		}
 

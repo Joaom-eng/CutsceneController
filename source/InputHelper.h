@@ -5,8 +5,7 @@
 
 using namespace std;
 
-enum GamepadButton
-{
+enum GamepadButton {
 	None,
 	Cross, 
 	Circle,
@@ -41,8 +40,7 @@ static unordered_map<string, GamepadButton> buttonMap = {
 	{"DPadRight", GamepadButton::DPadRight}
 };
 
-static GamepadButton GetButtonFromString(const std::string& str)
-{
+static GamepadButton GetButtonFromString(const std::string& str) {
 	auto it = buttonMap.find(str);
 	if (it != buttonMap.end())
 		return it->second;
@@ -50,24 +48,22 @@ static GamepadButton GetButtonFromString(const std::string& str)
 	return GamepadButton::None;
 }
 
-static signed short IsButtonPressed(GamepadButton btn, CControllerState state)
-{
-	switch (btn)
-	{
-	case GamepadButton::Cross:		return state.ButtonCross;
-	case GamepadButton::Circle:		return state.ButtonCircle;
-	case GamepadButton::Square:		return state.ButtonSquare;
-	case GamepadButton::Triangle:	return state.ButtonTriangle;
-	case GamepadButton::L1:			return state.LeftShoulder1;
-	case GamepadButton::L2:			return state.LeftShoulder2;
-	case GamepadButton::R1:			return state.RightShoulder1;
-	case GamepadButton::R2:			return state.RightShoulder2;
-	case GamepadButton::Start:		return state.Start;
-	case GamepadButton::Select:		return state.Select;
-	case GamepadButton::DPadUp:     return state.DPadUp;
-	case GamepadButton::DPadDown:     return state.DPadDown;
-	case GamepadButton::DPadRight:     return state.DPadRight;
-	case GamepadButton::DPadLeft:     return state.DPadLeft;
-	default: return false;
+static signed short IsButtonPressed(GamepadButton btn, CControllerState state) {
+	switch (btn) {
+		case GamepadButton::Cross:		return state.ButtonCross;
+		case GamepadButton::Circle:		return state.ButtonCircle;
+		case GamepadButton::Square:		return state.ButtonSquare;
+		case GamepadButton::Triangle:	return state.ButtonTriangle;
+		case GamepadButton::L1:			return state.LeftShoulder1;
+		case GamepadButton::L2:			return state.LeftShoulder2;
+		case GamepadButton::R1:			return state.RightShoulder1;
+		case GamepadButton::R2:			return state.RightShoulder2;
+		case GamepadButton::Start:		return state.Start;
+		case GamepadButton::Select:		return state.Select;
+		case GamepadButton::DPadUp:     return state.DPadUp;
+		case GamepadButton::DPadDown:     return state.DPadDown;
+		case GamepadButton::DPadRight:     return state.DPadRight;
+		case GamepadButton::DPadLeft:     return state.DPadLeft;
+		default: return false;
 	}
 }

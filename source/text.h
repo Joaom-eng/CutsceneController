@@ -38,13 +38,8 @@ static void Draw_String(const char* m_text, float m_fX, float m_fY, float m_fWid
 		CFont::SetDropColor(inst.pauseTextDropColor);
 		CFont::SetDropShadowPosition(inst.pauseTextDropPos);
 	}
-	if (inst.bSetBackground) {
-		CFont::SetBackground(inst.bSetBackground, false);
-		CFont::SetBackgroundColor(inst.pauseTextBackColor);
-	}
-	else {
-		CFont::SetBackground(false, false);
-	}
+	
+	CFont::SetBackground(false, false);
 
 	/*
 	if (m_nOutline || m_nShadow)
@@ -67,7 +62,6 @@ static void Draw_String(const char* m_text, float m_fX, float m_fY, float m_fWid
 	}
 	*/
 
-	
 	CFont::SetColor(inst.pauseTextColor);
 	switch (m_nAlign)
 	{

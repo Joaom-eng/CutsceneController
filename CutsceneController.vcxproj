@@ -82,7 +82,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
-      <AdditionalDependencies>bass.lib;plugin.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>d3d9.lib;bass.lib;plugin.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(PLUGIN_SDK_DIR)\shared\bass;$(PLUGIN_SDK_DIR)\output\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <ImportLibrary>bin\GTA-SA\Release\MyPlugin.SA.lib</ImportLibrary>
     </Link>
@@ -132,6 +132,7 @@ xcopy /Y "$(TargetPath)" "$(GTA_SA_DIR)\scripts"
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="source\blur.cpp" />
     <ClCompile Include="source\CutsceneController.cpp" />
     <ClCompile Include="source\Main.cpp" />
   </ItemGroup>
