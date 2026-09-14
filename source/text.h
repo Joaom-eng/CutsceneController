@@ -30,16 +30,25 @@ static void Draw_String(const char* m_text, float m_fX, float m_fY, float m_fWid
 	CFont::SetScale(sizX * magicResolutionWidth, sizY * magicResolutionHeight);
 	CFont::SetFontStyle(m_nStyle);
 	CFont::SetProportional(true);
+#ifdef GTASA
 	CFont::SetJustify(false);
-	CFont::SetOrientation(m_nAlign);
 	CFont::SetEdge(inst.pauseTextBorder);
+	CFont::SetBackground(false, false);
+#endif
+#ifdef GTAVC
+	CFont::SetJustifyOff();
+	CFont::SetBackground(false);
+#endif
+
+	CFont::SetOrientation(m_nAlign);
+	
 
 	if (inst.bSetShadow) {
 		CFont::SetDropColor(inst.pauseTextDropColor);
 		CFont::SetDropShadowPosition(inst.pauseTextDropPos);
 	}
 	
-	CFont::SetBackground(false, false);
+	
 
 	/*
 	if (m_nOutline || m_nShadow)
@@ -75,5 +84,10 @@ static void Draw_String(const char* m_text, float m_fX, float m_fY, float m_fWid
 
 	CMessages::InsertNumberInString(m_text, -1, -1, -1, -1, -1, -1, finalString); // this is required to use InsertPlayerControlKeysInString, idkw
 	CMessages::InsertPlayerControlKeysInString(finalString);
+
+#ifdef GTASA
+	CFont::PrintString(m_fX * magicResolutionWidth, m_fY * magicResolutionHeight, finalString);
+#elif defined(GTAVC) || defined(GTA3)
 	CFont::PrintString(m_fX * magicResolutionWidth, m_fY * magicResolutionHeight, m_text);
+#endif
 }

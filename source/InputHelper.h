@@ -6,7 +6,7 @@
 using namespace std;
 
 enum GamepadButton {
-	None,
+	G_None,
 	Cross, 
 	Circle,
 	Square,
@@ -45,7 +45,7 @@ static GamepadButton GetButtonFromString(const std::string& str) {
 	if (it != buttonMap.end())
 		return it->second;
 
-	return GamepadButton::None;
+	return GamepadButton::G_None;
 }
 
 static signed short IsButtonPressed(GamepadButton btn, CControllerState state) {
