@@ -105,10 +105,68 @@ unsigned char blur_cso[1100] = {
 	0x00, 0x00, 0xE4, 0x80, 0xFF, 0xFF, 0x00, 0x00
 };
 
+static RwCamera* CreateTextureCamera(int width, int height, RpWorld* world) {
+	RwRaster* raster = RwRasterCreate(width, height, 0, rwRASTERTYPECAMERATEXTURE);
+	if (!raster)
+		return nullptr;
+
+	RwFrame* frame = RwFrameCreate();
+	if (!frame) {
+		RwRasterDestroy(raster);
+		return nullptr;
+	}
+
+	RwCamera* camera = RwCameraCreate();
+	if (!camera) {
+		RwFrameDestroy(frame);
+		RwRasterDestroy(raster);
+		return nullptr;
+	}
+
+	RwCameraSetRaster(camera, raster);
+	RwCameraSetFrame(camera, frame);
+	RwCameraSetNearClipPlane(camera, 0.1f);
+	RwCameraSetFarClipPlane(camera, 250.0f);
+
+	RwV2d viewWindow = { 0.5f, 0.5f * static_cast<float>(height) / static_cast<float>(width) };
+	RwCameraSetViewWindow(camera, &viewWindow);
+
+	if (world)
+		RpWorldAddCamera(world, camera);
+
+	return camera;
+}
+
+static void DestroyTextureCamera(RwCamera*& camera, RpWorld* world) {
+	if (!camera)
+		return;
+
+	if (world)
+		RpWorldRemoveCamera(world, camera);
+
+	RwFrame* frame = RwCameraGetFrame(camera);
+	if (frame) {
+		RwCameraSetFrame(camera, nullptr);
+		RwFrameDestroy(frame);
+	}
+
+	RwRaster* raster = RwCameraGetRaster(camera);
+	if (raster) {
+		RwCameraSetRaster(camera, nullptr);
+		RwRasterDestroy(raster);
+	}
+
+	RwCameraDestroy(camera);
+	camera = nullptr;
+}
+
 void GaussianBlur::CreateRasters() {
 	RwRaster* camRaster = RwCameraGetRaster(Scene.m_pCamera);
-	float x = 0.7f, y = 0.7f;
+	if (!camRaster)
+		return;
+
 #ifdef GTASA 
+	const float scale = 0.25f;
 	float w = RwRasterGetWidth(CPostEffects::pRasterFrontBuffer);
 	float h = RwRasterGetHeight(CPostEffects::pRasterFrontBuffer);
 	blurRaster = RwRasterCreate(
@@ -118,14 +176,10 @@ void GaussianBlur::CreateRasters() {
 		rwRASTERTYPECAMERATEXTURE | rwRASTERFORMAT8888
 	);
 
-	int lowW = ((int)(w * x) >> 4) << 4;
-	int lowH = ((int)(h * y) >> 4) << 4;
-	lowRaster = RwRasterCreate(
-		lowW,
-		lowH,
-		camRaster->depth,
-		rwRASTERTYPECAMERATEXTURE | rwRASTERFORMAT8888
-	);
+	int lowW = ((int)(RwRasterGetWidth(camRaster) * scale) + 15) & ~15;
+	int lowH = ((int)(RwRasterGetHeight(camRaster) * scale) + 15) & ~15;
+	if (lowW < 64) lowW = 64;
+	if (lowH < 64) lowH = 64;
 #elif defined(GTAVC) || defined(GTA3)
 	float w = RwRasterGetWidth(camRaster);
 	float h = RwRasterGetHeight(camRaster);
@@ -135,11 +189,23 @@ void GaussianBlur::CreateRasters() {
 		camRaster->depth,
 		rwRASTERTYPECAMERATEXTURE
 	);
-#endif 
-	
-	FixAspectRatio(&x, &y);
 
-	bInitShaderAndRasters = true;
+	int lowW = ((int)(w * 0.25f) + 15) & ~15;
+	int lowH = ((int)(h * 0.25f) + 15) & ~15;
+	if (lowW < 64) lowW = 64;
+	if (lowH < 64) lowH = 64;
+
+#endif 
+
+	auxiliaryCameraWorld = Scene.m_pWorld;
+	lowCamera = CreateTextureCamera(lowW, lowH, auxiliaryCameraWorld);
+	pingPongCamera = CreateTextureCamera(lowW, lowH, auxiliaryCameraWorld);
+	lowRaster = lowCamera ? RwCameraGetRaster(lowCamera) : nullptr;
+	pingPongRaster = pingPongCamera ? RwCameraGetRaster(pingPongCamera) : nullptr;
+
+	bInitShaderAndRasters = blurRaster && lowRaster && pingPongRaster;
+	if (!bInitShaderAndRasters)
+		DestroyRasters();
 }
 
 GaussianBlur::GaussianBlur() {
@@ -147,97 +213,176 @@ GaussianBlur::GaussianBlur() {
 }
 
 GaussianBlur::~GaussianBlur() {
+	DestroyRasters();
+}
+
+void GaussianBlur::DestroyRasters() {
+	bInitShaderAndRasters = false;
+
 	if (blurRaster) {
 		RwRasterDestroy(blurRaster);
 		blurRaster = nullptr;
 	}
 
-	if (lowRaster) {
-		RwRasterDestroy(lowRaster);
-		lowRaster = nullptr;
-	}
+	DestroyTextureCamera(lowCamera, auxiliaryCameraWorld);
+	DestroyTextureCamera(pingPongCamera, auxiliaryCameraWorld);
+	auxiliaryCameraWorld = nullptr;
+	lowRaster = nullptr;
+	pingPongRaster = nullptr;
 }
 
 void GaussianBlur::reloadRasters() {
-	if (blurRaster) {
-		RwRasterDestroy(blurRaster);
-		blurRaster = nullptr;
-	}
-
-	if (lowRaster) {
-		RwRasterDestroy(lowRaster);
-		lowRaster = nullptr;
-	}
-
+	DestroyRasters();
 	CreateRasters();
 }
 
-// blur simulation
-void GaussianBlur::DrawSimulatedBlurStep(RwRaster* raster, float offsetX, float offsetY, unsigned char alpha)
-{
-	float width = (float)RwRasterGetWidth(raster);
-	float height = (float)RwRasterGetHeight(raster);
-	float d3dOffset = -0.5f;
+void GaussianBlur::DrawRasterToCurrentTarget(RwRaster* raster, float targetWidth, float targetHeight,
+	float uOffset, float vOffset, unsigned char alpha, bool additive, float maxU, float maxV) {
+	if (!raster)
+		return;
+
+	float sourceWidth = (float)RwRasterGetWidth(raster);
+	float sourceHeight = (float)RwRasterGetHeight(raster);
+	float halfTexelU = 0.5f / sourceWidth;
+	float halfTexelV = 0.5f / sourceHeight;
+	float left = -0.5f;
+	float top = -0.5f;
+	float right = targetWidth - 0.5f;
+	float bottom = targetHeight - 0.5f;
+	float rhw = 1.0f;
+
+	RwIm2DVertex verts[4];
+	RwIm2DVertexSetScreenX(&verts[0], left);
+	RwIm2DVertexSetScreenY(&verts[0], top);
+	RwIm2DVertexSetU(&verts[0], halfTexelU + uOffset, rhw);
+	RwIm2DVertexSetV(&verts[0], halfTexelV + vOffset, rhw);
+
+	RwIm2DVertexSetScreenX(&verts[1], right);
+	RwIm2DVertexSetScreenY(&verts[1], top);
+	RwIm2DVertexSetU(&verts[1], maxU - halfTexelU + uOffset, rhw);
+	RwIm2DVertexSetV(&verts[1], halfTexelV + vOffset, rhw);
+
+	RwIm2DVertexSetScreenX(&verts[2], left);
+	RwIm2DVertexSetScreenY(&verts[2], bottom);
+	RwIm2DVertexSetU(&verts[2], halfTexelU + uOffset, rhw);
+	RwIm2DVertexSetV(&verts[2], maxV - halfTexelV + vOffset, rhw);
+
+	RwIm2DVertexSetScreenX(&verts[3], right);
+	RwIm2DVertexSetScreenY(&verts[3], bottom);
+	RwIm2DVertexSetU(&verts[3], maxU - halfTexelU + uOffset, rhw);
+	RwIm2DVertexSetV(&verts[3], maxV - halfTexelV + vOffset, rhw);
+
+	for (int i = 0; i < 4; i++) {
+		RwIm2DVertexSetScreenZ(&verts[i], 0.0f);
+		RwIm2DVertexSetRecipCameraZ(&verts[i], rhw);
+		RwIm2DVertexSetIntRGBA(&verts[i], 255, 255, 255, alpha);
+	}
 
 	RwRenderStateSet(rwRENDERSTATETEXTURERASTER, raster);
 	RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERLINEAR);
+	RwRenderStateSet(rwRENDERSTATETEXTUREADDRESSU, (void*)rwTEXTUREADDRESSCLAMP);
+	RwRenderStateSet(rwRENDERSTATETEXTUREADDRESSV, (void*)rwTEXTUREADDRESSCLAMP);
+	RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)FALSE);
+	RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
+	RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)(additive ? TRUE : FALSE));
+
+	if (additive) {
+		RwRenderStateSet(rwRENDERSTATESRCBLEND, (void*)rwBLENDSRCALPHA);
+		RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)rwBLENDONE);
+	}
+
+	RwIm2DRenderPrimitive(rwPRIMTYPETRISTRIP, verts, 4);
+}
+
+void GaussianBlur::DrawPingPongBlur() {
+	RwCamera* camera = Scene.m_pCamera;
+	if (!camera || !blurRaster || !lowCamera || !pingPongCamera ||
+		!lowRaster || !pingPongRaster)
+		return;
+
+	RwRaster* screenRaster = RwCameraGetRaster(camera);
+	if (!screenRaster || RwCameraGetCurrentCamera() != camera)
+		return;
+
+	const float lowWidth = (float)RwRasterGetWidth(lowRaster);
+	const float lowHeight = (float)RwRasterGetHeight(lowRaster);
+	const float capturedMaxU = (float)RwRasterGetWidth(screenRaster) / (float)RwRasterGetWidth(blurRaster);
+	const float capturedMaxV = (float)RwRasterGetHeight(screenRaster) / (float)RwRasterGetHeight(blurRaster);
+	RwRGBA clearColor = { 0, 0, 0, 255 };
+
+	// RenderWare configures the target and viewport from each auxiliary camera.
+	// End the game's camera first so camera updates are never nested.
+	RwCameraEndUpdate(camera);
+
+	bool passesSucceeded = false;
+	do {
+		RwCameraClear(lowCamera, &clearColor, rwCAMERACLEARIMAGE);
+		if (!RwCameraBeginUpdate(lowCamera))
+			break;
+
+		DrawRasterToCurrentTarget(
+			blurRaster,
+			lowWidth,
+			lowHeight,
+			0.0f,
+			0.0f,
+			255,
+			false,
+			capturedMaxU,
+			capturedMaxV
+		);
+		RwCameraEndUpdate(lowCamera);
+
+		RwRaster* source = lowRaster;
+		RwCamera* destinationCamera = pingPongCamera;
+
+		float baseOffset = inst.fBlurIntensity * 0.25f;
+		if (baseOffset < 0.75f)
+			baseOffset = 0.75f;
+
+		for (int pass = 0; pass < 2; pass++) {
+			RwRaster* destination = RwCameraGetRaster(destinationCamera);
+			const float offset = baseOffset * (pass + 1);
+			const float uOffset = offset / (float)RwRasterGetWidth(source);
+			const float vOffset = offset / (float)RwRasterGetHeight(source);
+
+			RwCameraClear(destinationCamera, &clearColor, rwCAMERACLEARIMAGE);
+			if (!RwCameraBeginUpdate(destinationCamera))
+				break;
+
+			DrawRasterToCurrentTarget(source, lowWidth, lowHeight, -uOffset, -vOffset, 64, true);
+			DrawRasterToCurrentTarget(source, lowWidth, lowHeight, uOffset, -vOffset, 64, true);
+			DrawRasterToCurrentTarget(source, lowWidth, lowHeight, -uOffset, vOffset, 64, true);
+			DrawRasterToCurrentTarget(source, lowWidth, lowHeight, uOffset, vOffset, 64, true);
+
+			RwCameraEndUpdate(destinationCamera);
+			source = destination;
+			destinationCamera = destinationCamera == lowCamera ? pingPongCamera : lowCamera;
+
+			if (pass == 1) {
+				if (!RwCameraBeginUpdate(camera))
+					return;
+
+				DrawRasterToCurrentTarget(
+					source,
+					(float)RwRasterGetWidth(screenRaster),
+					(float)RwRasterGetHeight(screenRaster),
+					0.0f,
+					0.0f,
+					255,
+					false
+				);
+				passesSucceeded = true;
+			}
+		}
+	} while (false);
+
 	RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
 	RwRenderStateSet(rwRENDERSTATESRCBLEND, (void*)rwBLENDSRCALPHA);
 	RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)rwBLENDINVSRCALPHA);
 
-	RwIm2DVertex verts[4];
-	float z = 0.0f;
-	float rhw = 1.0f;
-
-	// Coordinates with the blur offset applied over the D3D offset
-	float x1 = 0.0f + d3dOffset + offsetX;
-	float y1 = 0.0f + d3dOffset + offsetY;
-	float x2 = width + d3dOffset + offsetX;
-	float y2 = height + d3dOffset + offsetY;
-
-	// Moving vertices
-	RwIm2DVertexSetScreenX(&verts[0], x1);
-	RwIm2DVertexSetScreenY(&verts[0], y1);
-	RwIm2DVertexSetU(&verts[0], 0.0f, rhw);
-	RwIm2DVertexSetV(&verts[0], 0.0f, rhw);
-
-	RwIm2DVertexSetScreenX(&verts[1], x2);
-	RwIm2DVertexSetScreenY(&verts[1], y1);
-	RwIm2DVertexSetU(&verts[1], 1.0f, rhw);
-	RwIm2DVertexSetV(&verts[1], 0.0f, rhw);
-
-	RwIm2DVertexSetScreenX(&verts[2], x1);
-	RwIm2DVertexSetScreenY(&verts[2], y2);
-	RwIm2DVertexSetU(&verts[2], 0.0f, rhw);
-	RwIm2DVertexSetV(&verts[2], 1.0f, rhw);
-
-	RwIm2DVertexSetScreenX(&verts[3], x2);
-	RwIm2DVertexSetScreenY(&verts[3], y2);
-	RwIm2DVertexSetU(&verts[3], 1.0f, rhw);
-	RwIm2DVertexSetV(&verts[3], 1.0f, rhw);
-
-	for (int i = 0; i < 4; i++) {
-		RwIm2DVertexSetScreenZ(&verts[i], z);
-		RwIm2DVertexSetRecipCameraZ(&verts[i], rhw);
-		RwIm2DVertexSetIntRGBA(&verts[i], 255, 255, 255, alpha);
-	}
-	//Draw_String("Draw blur been called...", 240.0f, 200.0f, 0.3, 0.5, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_CENTER); // 640 480
-	RwIm2DRenderPrimitive(rwPRIMTYPETRISTRIP, verts, 4);
-}
-
-void GaussianBlur::DrawSimulatedBlur() {
-	float blurIntensity = inst.fBlurIntensity;
-	unsigned char alpha = inst.blurAlpha;
-
-	// 4 diagonal passes(simulates Gaussian shader)
-	DrawSimulatedBlurStep(blurRaster, -blurIntensity, -blurIntensity, alpha);
-	DrawSimulatedBlurStep(blurRaster, blurIntensity, -blurIntensity, alpha);
-	DrawSimulatedBlurStep(blurRaster, -blurIntensity, blurIntensity, alpha);
-	DrawSimulatedBlurStep(blurRaster, blurIntensity, blurIntensity, alpha);
-
-	// More cardinal steps to increase intensity
-	DrawSimulatedBlurStep(blurRaster, 0, blurIntensity * 1.5f, alpha);
-	DrawSimulatedBlurStep(blurRaster, 0, -blurIntensity * 1.5f, alpha);
+	if (!passesSucceeded)
+		RwCameraBeginUpdate(camera);
 }
 
 void GaussianBlur::DrawBlur_SA() {
@@ -249,13 +394,12 @@ void GaussianBlur::DrawBlur_SA() {
 	float w = RwRasterGetWidth(CPostEffects::pRasterFrontBuffer);
 	float h = RwRasterGetHeight(CPostEffects::pRasterFrontBuffer);
 
-	if (w != blurRaster->width || h != blurRaster->height || camRaster->depth != blurRaster->depth) {
+	if (!blurRaster || !lowRaster || !pingPongRaster ||
+		w != blurRaster->width || h != blurRaster->height || camRaster->depth != blurRaster->depth) {
 		reloadRasters();
 		return;
 	}
 
-	ImmediateModeRenderStatesStore();
-	ImmediateModeRenderStatesSet();
 	if (inst.bUsePixelShader) {
 		if (bInitShaderAndRasters) {
 			RwRect rect = { 0, 0, lowRaster->width, lowRaster->height };
@@ -299,10 +443,9 @@ void GaussianBlur::DrawBlur_SA() {
 	}
 	else {
 		if (bInitShaderAndRasters) {
-			DrawSimulatedBlur();
+			DrawPingPongBlur();
 		}
 	}
-	ImmediateModeRenderStatesReStore();
 #endif 
 }
 
@@ -315,16 +458,17 @@ void GaussianBlur::DrawBlur_VCorIII() {
 	if (KeyPressed(inst.disableBlurInGameKey) || !camRaster || !Scene.m_pCamera)
 		return;
 	
-	float w = RwRasterGetWidth(camRaster);
-	float h = RwRasterGetHeight(camRaster);
+	int w = RwRasterGetWidth(camRaster);
+	int h = RwRasterGetHeight(camRaster);
 
-	if (w != blurRaster->width || h != blurRaster->height || camRaster->depth != blurRaster->depth) {
+	if (!blurRaster || !lowRaster || !pingPongRaster ||
+		w != blurRaster->width || h != blurRaster->height || camRaster->depth != blurRaster->depth) {
 		reloadRasters();
 		return;
 	}
 	
 	if (bInitShaderAndRasters) {
-		DrawSimulatedBlur();
+		DrawPingPongBlur();
 	}
 	
 }

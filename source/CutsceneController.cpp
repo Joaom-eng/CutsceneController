@@ -306,7 +306,7 @@ void CutsceneController::DrawInterface() {
 
 	if ((IS_ON_ANY_CUTSCENE) && bShowInterface) { // pause interface
 		if (bVignette) {
-			if (vig.m_pTexture != nullptr)
+			if (vig.m_pTexture != nullptr) 
 				vig.Draw(CRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT), CRGBA(0, 0, 0, vignetteAlpha));
 		}
 		if (bPauseIcon) {
@@ -325,7 +325,7 @@ void CutsceneController::DrawInterface() {
 			
 			
 			if (pauseButton.m_pTexture != nullptr) {
-				pauseButton.Draw(CRect(x, y, x + w, y + h), CRGBA(255, 255, 255, 255)); // no momento nao funciona, fica branco
+				pauseButton.Draw(CRect(x, y, x + w, y + h), CRGBA(255, 255, 255, 255));
 			}
 		}
 
@@ -336,7 +336,7 @@ void CutsceneController::DrawInterface() {
 	if ((IS_ON_ANY_CUTSCENE) && bFixedCam && bShowCamSpeedText) {
 		char msg[64];
 		sprintf_s(msg, "Camera speed: %.1f", camSpeed);
-		Draw_String(msg, 580.0f, 15.0f, 0.3, 0.5, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_CENTER); // 640 480
+		Draw_String(msg, 580.0f, 15.0f, 0.3, 0.5, true, eFontStyle::FONT_SUBTITLES, eFontAlignment::ALIGN_CENTER);
 	}
 }
 
@@ -502,8 +502,6 @@ bool CutsceneController::ReadIniOptions() {
 	return true;
 }
 
-//typedef bool(__thiscall* FuncFW)();
-//FuncFW isForegroundWindow = (FuncFW)0x746070;
 static bool isForegroundWindow() {
 	return GetForegroundWindow() == RsGlobal.ps->window;
 }

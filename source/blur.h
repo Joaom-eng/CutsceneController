@@ -2,32 +2,34 @@
 #ifdef GTASA
 	#include <d3d9.h>
 #endif 
-typedef bool(__thiscall* FuncState)();
-
-static FuncState ImmediateModeRenderStatesStore = (FuncState)0x700CC0;
-static FuncState ImmediateModeRenderStatesSet = (FuncState)0x700D70;
-static FuncState ImmediateModeRenderStatesReStore = (FuncState)0x700E00;
 
 static RwIm2DVertex* colorfilterVerts = (RwIm2DVertex*)0xC400D8;
 static RwImVertexIndex* colorfilterIndices = (RwImVertexIndex*)0x8D5174;
 
 class GaussianBlur {
 public:
-	void* blurShader;
+	void* blurShader = nullptr;
 	bool bInitShaderAndRasters = false;
-	RwRaster* blurRaster;
-	RwRaster* lowRaster;
+	RwRaster* blurRaster = nullptr;
+	RwRaster* lowRaster = nullptr;
+	RwRaster* pingPongRaster = nullptr;
+	RwCamera* lowCamera = nullptr;
+	RwCamera* pingPongCamera = nullptr;
+	RpWorld* auxiliaryCameraWorld = nullptr;
 
 	GaussianBlur();
 	~GaussianBlur();
 
 	void CreateRasters();
+	void DestroyRasters();
 	void reloadRasters();
-	void DrawSimulatedBlur();
 	void DrawBlur_SA();
 	void DrawBlur_VCorIII();
 
-	void DrawSimulatedBlurStep(RwRaster* raster, float offsetX, float offsetY, unsigned char alpha);
+	void DrawRasterToCurrentTarget(RwRaster* raster, float targetWidth, float targetHeight,
+		float uOffset, float vOffset, unsigned char alpha, bool additive,
+		float maxU = 1.0f, float maxV = 1.0f);
+	void DrawPingPongBlur();
 };
 
 extern unsigned char blur_cso[1100];

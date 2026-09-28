@@ -61,9 +61,6 @@ struct Main
 				inst.vig.SetTexture((char*)"cuts_vignette");
                 CTxdStore::PopCurrentTxd();
             }
-            else {
-                
-            }
 
             inst.gsBlur = new GaussianBlur(); // init rasters
 #ifdef GTASA
