@@ -310,8 +310,8 @@ void GaussianBlur::DrawPingPongBlur() {
 	const float capturedMaxV = (float)RwRasterGetHeight(screenRaster) / (float)RwRasterGetHeight(blurRaster);
 	RwRGBA clearColor = { 0, 0, 0, 255 };
 
-	// RenderWare configures the target and viewport from each auxiliary camera.
-	// End the game's camera first so camera updates are never nested.
+	// RenderWare configures the target and viewport from each auxiliary camera
+	// End the game's camera first so camera updates are never nested
 	RwCameraEndUpdate(camera);
 
 	bool passesSucceeded = false;

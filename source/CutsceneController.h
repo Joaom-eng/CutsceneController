@@ -187,8 +187,6 @@ public:
 	
 	inline void ChangeCutscenePause() {
 #ifdef GTASA
-		//if (pauseMethod == eCutscenePauseMethod::CODE_PAUSE) CodePauseMethod();
-		//else UserPauseMethod();
 		SetGamePaused(!bCutscenePaused, pauseMethod);
 #elif GTAVC
 		SetGamePaused(!bCutscenePaused, eCutscenePauseMethod::USER_PAUSE);
@@ -260,11 +258,11 @@ public:
 
 	bool LoadAudio();
 	bool CanPauseNow();
-	void Update(); // Game process event callback
+	void Update();
 	void SkipCutscene_VC();
 	void PauseAudioStream(bool flag); // only VC and III
 
-	// It requires memory patches to display messages on the screen; m_UserPause is used by the game's menu system and other things, and may be more reliable than m_CodePause
+	// It requires memory patches to display messages on the screen; m_UserPause is used by the game's menu system and other things, and may be more reliable than m_CodePause(SA)
 	void UserPauseMethod();
 	void CodePauseMethod();
 	void SetGamePaused(bool bPaused, eCutscenePauseMethod method);
