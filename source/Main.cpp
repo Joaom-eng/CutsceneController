@@ -8,6 +8,11 @@ using namespace plugin;
 
 struct Main
 {
+    
+    static void __fastcall HookInclinedSurfaceQuatRotate(CPedIK* ik, void*) {
+        
+    }
+
     Main()
     {   
 		if (!inst.ReadIniOptions()) return;
@@ -15,6 +20,15 @@ struct Main
         if (GetGameVersion() != GAME_10US_HOODLUM) return;
         injector::MakeJMP(0x4D5D10, CutsceneController::Hook_IsCutsceneSkipButtonBeingPressed, true);
 
+        // User pause prevents CEntity::UpdateAnim() from restoring the base pose,
+        // while CPedIK::InclinedSurfaceQuatRotate() still runs during rendering.
+        // Skip it while paused to prevent bone and root-matrix transformations from accumulating.
+		injector::MakeInline<0x5E6653, 0x5E6653 + 5>([](injector::reg_pack& regs) {
+            if (inst.bCutscenePaused) {
+                reinterpret_cast<void(__thiscall*)(CPedIK*)>(0x5FE0E0)((CPedIK*)(regs.ecx)); // CPedIK::InclinedSurfaceQuatRotate
+            }
+		});
+        
         // GTA VC and III do not have the IsCutsceneSkipButtonBeingPressed function
 #elif GTAVC
         if (GetGameVersion() != GAME_10EN) return;

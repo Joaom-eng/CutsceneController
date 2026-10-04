@@ -12,7 +12,7 @@ Cutscene Controller is an ASI plugin that adds improvements and fixes to the gam
 - Ensures CLEO scripts continue executing while cutscenes are paused, preventing interruptions caused by the game's `CTimer::m_UserPause` or `CTimer::m_CodePause` states
 - Provides an exported function `IsCutscenePaused` that allows external plugins or CLEO scripts to detect whether a cutscene is currently paused
 - Adds a shader-free simulated blur effect when a cutscene is paused
-- GTA San Andreas also supports a real Gaussian pixel shader
+- GTA SA also supports a real Gaussian pixel shader
 - Adds a simple pause interface
 - It allows you to move the camera freely during the scene, something like [this](https://www.mixmods.com.br/2018/11/assistir-cutscenes-em-outros-angulos-mod/) but without bugs
 
@@ -42,6 +42,8 @@ Cutscene Controller is an ASI plugin that adds improvements and fixes to the gam
 | Enable or disable free camera | `SHIFT` | `ToggleKey` |
 | Move camera forward | `W` | `FrontKey` |
 | Move camera backward | `S` | `BackKey` |
+| Move camera left | `A` | `LeftKey` |
+| Move camera right | `D` | `RightKey` |
 | Look around | Mouse movement | `Sensitivity` |
 | Increase or decrease camera speed | Mouse wheel | `InitialSpeed` |
 | Skip the cutscene | Game controls or configured keys | `SkipKey` / `SkipButton` |

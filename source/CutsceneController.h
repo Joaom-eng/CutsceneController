@@ -109,8 +109,12 @@ public:
 	unsigned int toggleCamKey;
 	unsigned int frontKey;
 	unsigned int backKey;
+	unsigned int leftKey;
+	unsigned int rightKey;
 	float camSensi;
 	float camSpeed;
+	float movementResponse;
+	float rotationResponse;
 	bool bFixedCam = false;
 	CVector camPos;
 	CVector lastFixedCamPos;

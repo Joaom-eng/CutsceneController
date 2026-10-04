@@ -13,6 +13,7 @@
 #include <CUserDisplay.h>
 #include <CGame.h>
 #include <CScene.h>
+#include <cmath>
 
 #include "CutsceneController.h"
 #include "text.h"
@@ -89,27 +90,88 @@ void CutsceneController::UpdateFreeCamera(float& posX, float& posY, float& posZ,
 	if (camSensi == 0.0f) accel = TheCamera.m_fMouseAccelHorzntal;
 	else accel = camSensi;
 
-	angX += mouse.x * accel; // Sensitivity
-	angY -= mouse.y * accel;
+	static CVector cameraVelocity = { 0.0f, 0.0f, 0.0f };
+	static float angularVelocityX = 0.0f;
+	static float angularVelocityY = 0.0f;
+	static ULONGLONG previousUpdateTime = 0;
 
-	if (angY > 1.5f) angY = 1.5f;
-	if (angY < -1.5f) angY = -1.5f;
+	constexpr float referenceFrameRate = 60.0f;
+	constexpr float maxDeltaTime = 0.05f;
+
+	ULONGLONG currentUpdateTime = GetTickCount64();
+	float deltaTime = 1.0f / referenceFrameRate;
+
+	if (previousUpdateTime != 0) {
+		ULONGLONG elapsedMilliseconds = currentUpdateTime - previousUpdateTime;
+
+		if (elapsedMilliseconds > 250) {
+			cameraVelocity = { 0.0f, 0.0f, 0.0f };
+			angularVelocityX = 0.0f;
+			angularVelocityY = 0.0f;
+		}
+		else {
+			deltaTime = static_cast<float>(elapsedMilliseconds) * 0.001f;
+			if (deltaTime < 0.001f) deltaTime = 0.001f;
+			if (deltaTime > maxDeltaTime) deltaTime = maxDeltaTime;
+		}
+	}
+
+	previousUpdateTime = currentUpdateTime;
+
+	float targetAngularVelocityX = mouse.x * accel / deltaTime;
+	float targetAngularVelocityY = -mouse.y * accel / deltaTime;
+	float rotationSmoothing = 1.0f - std::exp(-rotationResponse * deltaTime);
+
+	angularVelocityX += (targetAngularVelocityX - angularVelocityX) * rotationSmoothing;
+	angularVelocityY += (targetAngularVelocityY - angularVelocityY) * rotationSmoothing;
+
+	angX += angularVelocityX * deltaTime;
+	angY += angularVelocityY * deltaTime;
+
+	if (angY > 1.5f) {
+		angY = 1.5f;
+		if (angularVelocityY > 0.0f) angularVelocityY = 0.0f;
+	}
+	if (angY < -1.5f) {
+		angY = -1.5f;
+		if (angularVelocityY < 0.0f) angularVelocityY = 0.0f;
+	}
 
 	float dirX = cos(angY) * sin(angX);
 	float dirY = cos(angY) * cos(angX);
 	float dirZ = sin(angY);
 
-	if (KeyPressed(frontKey)) {
-		posX += dirX * camSpeed;
-		posY += dirY * camSpeed;
-		posZ += dirZ * camSpeed;
+	float forwardInput = 0.0f;
+	float sideInput = 0.0f;
+	if (KeyPressed(frontKey)) forwardInput += 1.0f;
+	if (KeyPressed(backKey)) forwardInput -= 1.0f;
+	if (KeyPressed(rightKey)) sideInput += 1.0f;
+	if (KeyPressed(leftKey)) sideInput -= 1.0f;
+
+	float inputLength = std::sqrt(forwardInput * forwardInput + sideInput * sideInput);
+	if (inputLength > 1.0f) {
+		forwardInput /= inputLength;
+		sideInput /= inputLength;
 	}
 
-	if (KeyPressed(backKey)) {
-		posX -= dirX * camSpeed;
-		posY -= dirY * camSpeed;
-		posZ -= dirZ * camSpeed;
-	}
+	float rightX = cos(angX);
+	float rightY = -sin(angX);
+
+	CVector targetVelocity = {
+		(dirX * forwardInput + rightX * sideInput) * camSpeed,
+		(dirY * forwardInput + rightY * sideInput) * camSpeed,
+		dirZ * forwardInput * camSpeed
+	};
+
+	float movementSmoothing = 1.0f - std::exp(-movementResponse * deltaTime);
+	cameraVelocity.x += (targetVelocity.x - cameraVelocity.x) * movementSmoothing;
+	cameraVelocity.y += (targetVelocity.y - cameraVelocity.y) * movementSmoothing;
+	cameraVelocity.z += (targetVelocity.z - cameraVelocity.z) * movementSmoothing;
+
+	float frameScale = deltaTime * referenceFrameRate;
+	posX += cameraVelocity.x * frameScale;
+	posY += cameraVelocity.y * frameScale;
+	posZ += cameraVelocity.z * frameScale;
 
 	CVector camPos = { posX, posY, posZ };
 	CVector lookAt = { posX + dirX, posY + dirY, posZ + dirZ };
@@ -208,7 +270,6 @@ void CutsceneController::Update() {
 		inst.ProcessFreeCamera();
 
 		if (IsPauseButtonPressed(pad) && GetTickCount64() > (m_nLastPausedTime + 1000)) {
-
 			if (CanPauseNow()) {
 
 #ifdef GTASA
@@ -243,7 +304,7 @@ void CutsceneController::Update() {
 				m_nLastPausedTime = GetTickCount64();
 			}
 		}
-
+		
 		if (IsDebugButtonPressed(pad) && GetTickCount64() > (m_nLastDebugTime + 1000)) {
 			if (bShowDebugInterface) bShowDebugInterface = false;
 			else bShowDebugInterface = true;
@@ -483,6 +544,14 @@ bool CutsceneController::ReadIniOptions() {
 		bShowCamSpeedText = ini.ReadBoolean("Camera", "ShowSpeedNumber", true);
 		frontKey = ini.ReadInteger("Camera", "FrontKey", 87);
 		backKey = ini.ReadInteger("Camera", "BackKey", 83);
+		leftKey = ini.ReadInteger("Camera", "LeftKey", 65);
+		rightKey = ini.ReadInteger("Camera", "RightKey", 68);
+
+		movementResponse = ini.ReadFloat("Camera", "MovementResponse", 4.0f);
+		if (movementResponse <= 0.0f) movementResponse = 4.0f;
+
+		rotationResponse = ini.ReadFloat("Camera", "RotationResponse", 4.0f);
+		if (rotationResponse <= 0.0f) rotationResponse = 4.0f;
 
 		bPauseIcon = ini.ReadBoolean("Interface", "PauseSprite", true);
 		pauseIconPos.x = ini.ReadFloat("Interface", "PauseSpriteX", 0.0f);
